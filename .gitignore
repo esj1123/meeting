@@ -1,0 +1,6 @@
+.workflow/
+__pycache__/
+.pytest_cache/
+*.pyc
+G7BN6H.DOCX
+A6LQMLPO.DOCX
