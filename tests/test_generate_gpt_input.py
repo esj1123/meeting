@@ -100,3 +100,43 @@ def test_generate_gpt_input_requires_registered_meeting(tmp_path: Path) -> None:
         assert "Register raw/STT first" in str(exc)
     else:
         raise AssertionError("Expected GPT input generation before registration to fail")
+
+
+def test_generate_gpt_input_rejects_empty_cleaned_stt(tmp_path: Path) -> None:
+    stt_file = tmp_path / "20_Sources" / "00_Originals" / "empty_stt.txt"
+    stt_file.parent.mkdir(parents=True, exist_ok=True)
+    stt_file.write_text("   \n", encoding="utf-8")
+    register_sample_meeting(tmp_path, stt_file)
+
+    try:
+        generate_gpt_input(
+            root=tmp_path,
+            meeting_id="MTG-20260601-001",
+            source_file=stt_file,
+            apply=False,
+        )
+    except ValueError as exc:
+        assert "empty after cleaning" in str(exc)
+    else:
+        raise AssertionError("Expected empty STT to fail")
+
+
+def test_generate_gpt_input_rejects_source_path_meeting_id_mismatch(tmp_path: Path) -> None:
+    copy_template(tmp_path)
+    stt_file = tmp_path / "20_Sources" / "00_Originals" / "MTG-20260602-001_stt.txt"
+    stt_file.parent.mkdir(parents=True, exist_ok=True)
+    stt_file.write_text("synthetic STT", encoding="utf-8")
+
+    try:
+        register_source(
+            root=tmp_path,
+            meeting_id="MTG-20260601-001",
+            title="Demo",
+            meeting_date="2026-06-01",
+            source_file=stt_file,
+            apply=True,
+        )
+    except ValueError as exc:
+        assert "different meeting_id" in str(exc)
+    else:
+        raise AssertionError("Expected mismatched source/STT path to fail")

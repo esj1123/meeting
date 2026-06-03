@@ -50,23 +50,25 @@ The output file is only a placeholder until the user saves the ChatGPT response 
 
 The generated input file already includes the manual instructions, the uncertainty rules, the required output sections, and the STT text. Copy the input file into ChatGPT manually.
 
-Save the pasted GPT output to the generated output path or another local Markdown/JSON file.
+Save the pasted GPT output to the generated output path:
+
+`40_Work/MTG-20260601-001_gpt_output.md`
 
 ## Import GPT Output
 
 Dry run:
 
 ```powershell
-py scripts\import_gpt_minutes.py --meeting-id MTG-20260601-001 --gpt-output .\scratch\gpt_output.md
+py scripts\import_gpt_minutes.py --meeting-id MTG-20260601-001 --gpt-output 40_Work\MTG-20260601-001_gpt_output.md
 ```
 
 Apply:
 
 ```powershell
-py scripts\import_gpt_minutes.py --meeting-id MTG-20260601-001 --gpt-output .\scratch\gpt_output.md --apply
+py scripts\import_gpt_minutes.py --meeting-id MTG-20260601-001 --gpt-output 40_Work\MTG-20260601-001_gpt_output.md --apply
 ```
 
-The import updates generated blocks in the main note, creates or updates generated decision/action/issue notes, and stores normalized parsed data under the meeting folder.
+The preview records workflow state. Apply is blocked until the same GPT output file has been previewed. The import updates generated blocks in the main note, creates or updates generated decision/action/issue notes, and stores normalized parsed data under the meeting folder.
 
 ## Render And Validate
 
@@ -92,6 +94,18 @@ Update dashboards:
 
 ```powershell
 py scripts\update_dashboards.py --apply
+```
+
+Dashboard files are written to:
+
+- `00_Dashboard/Meeting_HOME.md`
+- `00_Dashboard/Action_Queue.md`
+- `00_Dashboard/Decision_Register.md`
+
+Run the scoped quality gate before delivery:
+
+```powershell
+py scripts\quality_gate.py --root .
 ```
 
 ## Validation Coverage

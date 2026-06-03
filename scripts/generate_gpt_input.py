@@ -13,6 +13,7 @@ from meeting_workflow_state import (
     relpath,
     repo_root_from,
     require_valid_meeting_id,
+    validate_meeting_id_in_path,
     write_text,
 )
 
@@ -52,14 +53,17 @@ def generate_gpt_input(
     root = root.resolve()
     meeting_id = require_valid_meeting_id(meeting_id)
     context = _load_context(root, meeting_id, title=title, meeting_date=meeting_date)
-    source_path = _validated_optional_file(source_file)
+    source_path = _validated_optional_file(source_file, meeting_id)
     stt_path = _find_stt_file(root, context.raw_ref, source_path)
     if stt_path is None:
         raise ValueError(
             "No readable STT text file was found. Register or select a text/STT file before generating GPT input."
         )
+    validate_meeting_id_in_path(stt_path, meeting_id, "STT path")
 
     stt_text = _clean_stt_text(_read_text_file(stt_path), stt_path.suffix.lower())
+    if not stt_text.strip():
+        raise ValueError(f"STT file is empty after cleaning: {stt_path}")
     input_text = _render_gpt_input(root, context, stt_path, stt_text, source_path)
     actions = [write_text(gpt_input_path(root, meeting_id), input_text, apply=apply)]
     actions.append(_reserve_gpt_output(gpt_output_path(root, meeting_id), apply=apply))
@@ -96,10 +100,11 @@ def _source_note_path(root: Path, meeting_id: str, main_fm: Dict[str, Any]) -> P
     return root / "20_Sources" / f"{meeting_id}_source.md"
 
 
-def _validated_optional_file(path: Optional[Path]) -> Optional[Path]:
+def _validated_optional_file(path: Optional[Path], meeting_id: str) -> Optional[Path]:
     if path is None:
         return None
     resolved = path.expanduser().resolve()
+    validate_meeting_id_in_path(resolved, meeting_id, "Source/STT/audio path")
     if not resolved.exists():
         raise FileNotFoundError(f"Source/STT file does not exist: {resolved}")
     if not resolved.is_file():

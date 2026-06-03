@@ -68,7 +68,7 @@ TXT = {
     "confirm_register_title": "\ub4f1\ub85d \uc801\uc6a9",
     "confirm_register_body": "\uc18c\uc2a4 \ub178\ud2b8\uc640 \uba54\uc778 \ud68c\uc758 \ub178\ud2b8\ub97c \uc0dd\uc131\ud558\uac70\ub098 \uc5c5\ub370\uc774\ud2b8\ud560\uae4c\uc694?",
     "source_id_mismatch_title": "\uc6d0\ubcf8 \uacbd\ub85c ID \ud655\uc778",
-    "source_id_mismatch_body": "\uc120\ud0dd\ud55c \uc6d0\ubcf8/STT \uacbd\ub85c\uc5d0 \ub2e4\ub978 \ud68c\uc758 ID\uac00 \ubcf4\uc785\ub2c8\ub2e4.\n\n\ud604\uc7ac \ud68c\uc758 ID: {current}\n\uc6d0\ubcf8 \uacbd\ub85c ID: {source}\n\n\uadf8\ub300\ub85c \ub4f1\ub85d\ud560\uae4c\uc694?",
+    "source_id_mismatch_body": "\uc120\ud0dd\ud55c \uc6d0\ubcf8/STT \uacbd\ub85c\uc5d0 \ub2e4\ub978 \ud68c\uc758 ID\uac00 \ubcf4\uc785\ub2c8\ub2e4.\n\n\ud604\uc7ac \ud68c\uc758 ID: {current}\n\uc6d0\ubcf8 \uacbd\ub85c ID: {source}\n\n\ud68c\uc758 ID\uac00 \uc77c\uce58\ud558\ub294 \ud30c\uc77c\uc744 \uc120\ud0dd\ud558\uc138\uc694.",
     "register_failed": "\ub4f1\ub85d \uc2e4\ud328",
     "confirm_import_title": "\uac00\uc838\uc624\uae30 \uc801\uc6a9",
     "confirm_import_body": "\ubd99\uc5ec\ub123\uc740 GPT \uacb0\uacfc\ub85c \uc0dd\uc131 \uc601\uc5ed\uc744 \uc5c5\ub370\uc774\ud2b8\ud560\uae4c\uc694?",
@@ -361,8 +361,8 @@ class MeetingWorkflowApp(tk.Tk):
                 current_id = self.meeting_id.get().strip()
                 if source_hint and source_hint != current_id:
                     body = TXT["source_id_mismatch_body"].format(current=current_id, source=source_hint)
-                    if not messagebox.askyesno(TXT["source_id_mismatch_title"], body):
-                        return
+                    messagebox.showerror(TXT["source_id_mismatch_title"], body)
+                    return
                 if self.copy_raw.get():
                     selected_existing_file(self.source_file.get(), TXT["source_required"])
                     confirmed_copy = messagebox.askyesno(TXT["confirm_raw_title"], TXT["confirm_raw_body"])
@@ -430,7 +430,7 @@ class MeetingWorkflowApp(tk.Tk):
             messagebox.showerror(TXT["open_failed"], str(exc))
 
     def _open_review(self) -> None:
-        review_path = self.root_path / "30_Dashboards" / "review_required.md"
+        review_path = self.root_path / "00_Dashboard" / "Action_Queue.md"
         if not review_path.exists() and self.meeting_id.get().strip():
             meeting_id = self.meeting_id.get().strip()
             review_path = self.root_path / "25_Meetings" / meeting_id / f"{meeting_id}.md"

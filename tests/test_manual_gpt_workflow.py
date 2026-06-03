@@ -78,3 +78,8 @@ def test_prompt_templates_are_manual_workflow_only() -> None:
     assert "manual chatgpt workflow" in text
     assert "api key" in text
     assert "openai_client.py" not in text
+    assert "### main meeting note" in text
+    assert "### decision 후보" in text
+    assert "### action 후보" in text
+    assert "### open issue 후보" in text
+    assert "### 검토 필요 항목" in text

@@ -25,6 +25,7 @@ UNKNOWN_VALUES = {
     "없음",
 }
 MEETING_ID_RE = re.compile(r"^MTG-(\d{8})-(\d{3})$")
+MEETING_ID_IN_TEXT_RE = re.compile(r"MTG-\d{8}-\d{3}")
 DERIVED_ID_RE = re.compile(r"^(DEC|ACT|ISS|RUN)-(\d{8})-(\d{3})-(\d{3})$")
 DERIVED_PREFIXES = {
     "decision": "DEC",
@@ -120,6 +121,19 @@ def require_valid_meeting_id(value: str) -> str:
     if not validate_meeting_id(meeting_id):
         raise ValueError("meeting_id must match MTG-YYYYMMDD-NNN, for example MTG-20260602-001.")
     return meeting_id
+
+
+def meeting_ids_in_text(value: Any) -> List[str]:
+    return sorted(set(MEETING_ID_IN_TEXT_RE.findall(str(value or ""))))
+
+
+def validate_meeting_id_in_path(path: Path, meeting_id: str, label: str = "path") -> None:
+    expected = require_valid_meeting_id(meeting_id)
+    found = [item for item in meeting_ids_in_text(path) if item != expected]
+    if found:
+        raise ValueError(
+            f"{label} contains a different meeting_id: expected {expected}, found {', '.join(found)} in {path}"
+        )
 
 
 def split_meeting_id(meeting_id: str) -> Tuple[str, str]:

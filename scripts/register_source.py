@@ -15,6 +15,7 @@ from meeting_workflow_state import (
     relpath,
     repo_root_from,
     split_meeting_id,
+    validate_meeting_id_in_path,
     write_text,
 )
 
@@ -48,6 +49,7 @@ def register_source(
 
     if source_file:
         source_file = source_file.expanduser().resolve()
+        validate_meeting_id_in_path(source_file, meeting_id, "Source/STT/audio path")
         if not source_file.exists():
             raise FileNotFoundError(f"Source file does not exist: {source_file}")
         if not source_file.is_file():

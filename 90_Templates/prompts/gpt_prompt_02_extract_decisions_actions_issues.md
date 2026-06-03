@@ -1,60 +1,33 @@
-# Prompt 02: Extract Decisions, Actions, And Issues
+# Prompt 02: Extract Decisions, Actions, And Open Issues
 
-Convert the meeting minutes into the JSON schema below.
+Convert the meeting minutes into the fixed manual-import Markdown format below.
 
 Important constraints:
 
 - This is a manual ChatGPT workflow. Do not call any API and do not require an API key.
-- Speaker and role labels are unreliable by default.
+- Speaker and role labels from Galaxy STT are unreliable by default.
 - Do not invent owners, deciders, or due dates.
-- If an owner, decider, or due date is missing, ambiguous, or inferred, set `review_required` to `true`.
-- Use `Unknown` for unknown owner, decider, or due.
-- Use derived IDs when possible: `DEC-YYYYMMDD-MMM-NNN`, `ACT-YYYYMMDD-MMM-NNN`, and `ISS-YYYYMMDD-MMM-NNN`.
-- If you cannot derive the ID confidently, keep a temporary local ID; the repository importer will normalize it.
+- Use Decision only for confirmed decisions with clear source wording.
+- If an owner, decider, or due date is missing, ambiguous, or inferred, write `확인 필요`.
+- Put unresolved, unclear, or follow-up discussion items under `Open Issue 후보`.
+- Keep the section names and table headers exactly as written.
 
-Return only one fenced JSON block:
+```markdown
+### Main Meeting Note
 
-```json
-{
-  "meeting_id": "{{meeting_id}}",
-  "title": "{{title}}",
-  "meeting_date": "{{meeting_date}}",
-  "summary": [
-    "Concise factual summary item."
-  ],
-  "decisions": [
-    {
-      "id": "DEC-YYYYMMDD-MMM-001",
-      "title": "Decision title",
-      "decider": "Unknown",
-      "owner": "Unknown",
-      "due": "Unknown",
-      "review_required": true,
-      "source_refs": ["Short evidence fragment or timestamp"]
-    }
-  ],
-  "actions": [
-    {
-      "id": "ACT-YYYYMMDD-MMM-001",
-      "task": "Action task",
-      "owner": "Unknown",
-      "due": "Unknown",
-      "review_required": true,
-      "source_refs": ["Short evidence fragment or timestamp"]
-    }
-  ],
-  "issues": [
-    {
-      "id": "ISS-YYYYMMDD-MMM-001",
-      "issue": "Issue text",
-      "owner": "Unknown",
-      "review_required": true,
-      "source_refs": ["Short evidence fragment or timestamp"]
-    }
-  ],
-  "review": {
-    "review_required": true,
-    "reasons": ["owner_decider_due_uncertainty"]
-  }
-}
+### Decision 후보
+| ID | 제목 | 결정 내용 | 근거 | 확인 필요 |
+|---|---|---|---|---|
+
+### Action 후보
+| ID | 할 일 | 담당자 | 기한 | 근거 | 확인 필요 |
+|---|---|---|---|---|---|
+
+### Open Issue 후보
+| ID | 이슈 | 확인 주체 | 근거 | 다음 조치 |
+|---|---|---|---|---|
+
+### 검토 필요 항목
+| 위치 | 검토 사유 | 확인할 내용 |
+|---|---|---|
 ```

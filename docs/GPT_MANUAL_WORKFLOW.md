@@ -7,11 +7,11 @@ This repository uses ChatGPT manually. The program does not call the OpenAI API,
 1. Register the meeting source with `scripts/register_source.py` or the GUI launcher.
 2. Generate `40_Work/<meeting_id>_gpt_input.md` with `scripts/generate_gpt_input.py` or the GUI button `GPT 입력 파일 생성`.
 3. Open the generated GPT input file, copy it into ChatGPT manually, and do not use API automation.
-4. Save the ChatGPT response to `40_Work/<meeting_id>_gpt_output.md` or select another saved GPT output file.
+4. Save the ChatGPT response to `40_Work/<meeting_id>_gpt_output.md`.
 5. Preview the pasted output import with `scripts/import_gpt_minutes.py`.
 6. Apply the import after reviewing the preview.
 7. Render notes and dashboards with `scripts/render_meeting_repo.py` and `scripts/update_dashboards.py`.
-8. Run validation with `scripts/render_meeting_repo.py --validate`.
+8. Run validation with `scripts/render_meeting_repo.py --validate`, then run `scripts/quality_gate.py --root .`.
 
 All file-changing scripts default to dry run. Add `--apply` only after reviewing the planned changes.
 
@@ -31,6 +31,21 @@ The GPT input includes meeting metadata, source/raw/STT references, `speaker_rel
 ```
 
 The generator does not create fake GPT results and does not overwrite an existing GPT output file.
+
+## Import Preconditions
+
+The importer accepts only the expected Markdown output file:
+
+`40_Work/<meeting_id>_gpt_output.md`
+
+The file must exist, must not be empty, and must contain these fixed sections:
+
+- `### Main Meeting Note`
+- `### Decision 후보`
+- `### Action 후보`
+- `### Open Issue 후보`
+
+Apply is blocked until the same GPT output file has been previewed. If the file changes after preview, run preview again before applying.
 
 ## Source Policy
 

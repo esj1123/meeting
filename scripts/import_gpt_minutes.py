@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -16,7 +17,21 @@ from meeting_workflow_state import (
     replace_blocks_in_file,
     repo_root_from,
     review_required_for_item,
+    unknownish,
+    validate_meeting_id_in_path,
     write_text,
+)
+
+
+REQUIRED_FIXED_SECTIONS = (
+    "main meeting note",
+    "decision 후보",
+    "action 후보",
+    "open issue 후보",
+)
+GPT_OUTPUT_NEXT_STEP = (
+    "Generate GPT input first, copy it into ChatGPT manually, save the response as "
+    "40_Work/<meeting_id>_gpt_output.md, run preview, then apply."
 )
 
 
@@ -40,17 +55,25 @@ def import_gpt_minutes(
     apply: bool = False,
 ) -> List[str]:
     root = root.resolve()
+    meeting_id = require_valid_meeting_id(meeting_id)
+    preview_key = ""
+    output_path: Optional[Path] = None
     if gpt_text is None:
-        if gpt_output is None:
-            raise ValueError("Either gpt_output or gpt_text is required.")
-        if not gpt_output.exists():
-            raise FileNotFoundError(f"GPT output file does not exist: {gpt_output}")
-        if not gpt_output.is_file():
-            raise ValueError(f"GPT output path must be a file, not a directory: {gpt_output}")
-        gpt_text = gpt_output.read_text(encoding="utf-8")
+        output_path, gpt_text, preview_key = _read_valid_gpt_output(root, meeting_id, gpt_output)
+    elif not str(gpt_text or "").strip():
+        raise ValueError(f"GPT output content is empty. {GPT_OUTPUT_NEXT_STEP}")
     minutes = parse_gpt_output(gpt_text, meeting_id)
     minutes = _apply_main_note_metadata(root, meeting_id, minutes)
-    return render_minutes_artifacts(root=root, meeting_id=meeting_id, minutes=minutes, apply=apply)
+    summary = import_preview_summary(minutes)
+    if output_path:
+        if apply:
+            _require_import_preview(root, meeting_id, output_path, preview_key)
+        else:
+            _record_import_preview(root, meeting_id, output_path, preview_key, minutes, summary)
+    actions = render_minutes_artifacts(root=root, meeting_id=meeting_id, minutes=minutes, apply=apply)
+    if output_path and apply:
+        _record_import_applied(root, meeting_id, output_path, preview_key, minutes, summary)
+    return summary + actions
 
 
 def render_minutes_artifacts(root: Path, meeting_id: str, minutes: Dict[str, Any], apply: bool = False) -> List[str]:
@@ -91,6 +114,159 @@ def render_minutes_artifacts(root: Path, meeting_id: str, minutes: Dict[str, Any
                 )
             )
     return actions
+
+
+def expected_gpt_output_path(root: Path, meeting_id: str) -> Path:
+    return root.resolve() / "40_Work" / f"{require_valid_meeting_id(meeting_id)}_gpt_output.md"
+
+
+def _read_valid_gpt_output(root: Path, meeting_id: str, gpt_output: Optional[Path]) -> tuple[Path, str, str]:
+    if gpt_output is None:
+        raise ValueError(f"GPT output file is required. {GPT_OUTPUT_NEXT_STEP}")
+    raw_text = str(gpt_output).strip()
+    if not raw_text or raw_text == ".":
+        raise ValueError(f"GPT output path cannot be empty or '.'. {GPT_OUTPUT_NEXT_STEP}")
+    path = gpt_output.expanduser()
+    path = path if path.is_absolute() else root / path
+    path = path.resolve()
+    validate_meeting_id_in_path(path, meeting_id, "GPT output path")
+    expected = expected_gpt_output_path(root, meeting_id)
+    if not path.exists():
+        raise FileNotFoundError(f"GPT output file does not exist: {path}. {GPT_OUTPUT_NEXT_STEP}")
+    if not path.is_file():
+        raise ValueError(f"GPT output path must be a file, not a directory: {path}. {GPT_OUTPUT_NEXT_STEP}")
+    if path.suffix.lower() != ".md":
+        raise ValueError(f"GPT output file must be a .md file: {path}. {GPT_OUTPUT_NEXT_STEP}")
+    if path.name != expected.name or path != expected:
+        raise ValueError(f"GPT output file must be saved as {expected}. Selected: {path}")
+    text = path.read_text(encoding="utf-8")
+    if not text.strip():
+        raise ValueError(f"GPT output file is empty: {path}. {GPT_OUTPUT_NEXT_STEP}")
+    errors = fixed_section_errors(text)
+    if errors:
+        raise ValueError(f"GPT output is missing required fixed sections: {', '.join(errors)}. {GPT_OUTPUT_NEXT_STEP}")
+    return path, text, _preview_key(text)
+
+
+def _preview_key(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _preview_state_path(root: Path, meeting_id: str) -> Path:
+    return root / ".workflow" / f"{require_valid_meeting_id(meeting_id)}_import_preview.json"
+
+
+def _record_import_preview(
+    root: Path,
+    meeting_id: str,
+    output_path: Path,
+    preview_key: str,
+    minutes: Dict[str, Any],
+    summary: List[str],
+) -> None:
+    path = _preview_state_path(root, meeting_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "status": "IMPORT_PREVIEWED",
+                "meeting_id": meeting_id,
+                "gpt_output_file": str(output_path),
+                "preview_key": preview_key,
+                "counts": import_counts(minutes),
+                "summary": summary,
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def _require_import_preview(root: Path, meeting_id: str, output_path: Path, preview_key: str) -> None:
+    path = _preview_state_path(root, meeting_id)
+    if not path.exists():
+        raise ValueError(f"Run import preview before apply for {meeting_id}. {GPT_OUTPUT_NEXT_STEP}")
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if data.get("status") not in {"IMPORT_PREVIEWED", "IMPORT_APPLIED"}:
+        raise ValueError(f"Import preview state is invalid for {meeting_id}. Run preview again.")
+    if data.get("gpt_output_file") != str(output_path) or data.get("preview_key") != preview_key:
+        raise ValueError("GPT output changed after preview. Run import preview again before apply.")
+
+
+def _record_import_applied(
+    root: Path,
+    meeting_id: str,
+    output_path: Path,
+    preview_key: str,
+    minutes: Dict[str, Any],
+    summary: List[str],
+) -> None:
+    path = _preview_state_path(root, meeting_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "status": "IMPORT_APPLIED",
+                "meeting_id": meeting_id,
+                "gpt_output_file": str(output_path),
+                "preview_key": preview_key,
+                "counts": import_counts(minutes),
+                "summary": summary,
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def import_counts(minutes: Dict[str, Any]) -> Dict[str, int]:
+    review_required = sum(
+        1
+        for group in ("decisions", "actions", "issues")
+        for item in minutes.get(group, [])
+        if item.get("review_required")
+    )
+    return {
+        "main_update_count": 1,
+        "decision_count": len(minutes.get("decisions", [])),
+        "action_count": len(minutes.get("actions", [])),
+        "open_issue_count": len(minutes.get("issues", [])),
+        "review_required_count": review_required,
+    }
+
+
+def import_preview_summary(minutes: Dict[str, Any]) -> List[str]:
+    counts = import_counts(minutes)
+    lines = [
+        "preview counts: "
+        f"main={counts['main_update_count']} "
+        f"decisions={counts['decision_count']} "
+        f"actions={counts['action_count']} "
+        f"open_issues={counts['open_issue_count']} "
+        f"review_required={counts['review_required_count']}"
+    ]
+    lines.extend(import_warnings(minutes))
+    return lines
+
+
+def import_warnings(minutes: Dict[str, Any]) -> List[str]:
+    warnings: List[str] = []
+    for item in minutes.get("decisions", []):
+        missing = [field for field in ("decider", "owner", "due") if unknownish(item.get(field))]
+        if missing:
+            warnings.append(f"warning: decision {item.get('id', '<pending>')} missing {', '.join(missing)}")
+    for item in minutes.get("actions", []):
+        missing = [field for field in ("owner", "due") if unknownish(item.get(field))]
+        if missing:
+            warnings.append(f"warning: action {item.get('id', '<pending>')} missing {', '.join(missing)}")
+    for item in minutes.get("issues", []):
+        if unknownish(item.get("owner")):
+            warnings.append(f"warning: open issue {item.get('id', '<pending>')} missing owner")
+    return warnings
 
 
 def _extract_json(text: str) -> Optional[str]:
@@ -139,6 +315,9 @@ def _parse_markdown_sections(text: str, meeting_id: str) -> Dict[str, Any]:
 
 def _parse_fixed_manual_output(text: str, meeting_id: str) -> Optional[Dict[str, Any]]:
     sections = _sections_by_heading(text)
+    errors = fixed_section_errors(text, sections=sections)
+    if errors and any(name in sections for name in REQUIRED_FIXED_SECTIONS):
+        raise ValueError(f"GPT output is missing required fixed sections: {', '.join(errors)}")
     main_lines = _section_by_name(sections, "main meeting note")
     decision_lines = _section_by_name(sections, "decision 후보")
     action_lines = _section_by_name(sections, "action 후보")
@@ -162,6 +341,12 @@ def _parse_fixed_manual_output(text: str, meeting_id: str) -> Optional[Dict[str,
             "reasons": review_reasons,
         },
     }
+
+
+def fixed_section_errors(text: str, sections: Optional[Dict[str, List[str]]] = None) -> List[str]:
+    sections = sections if sections is not None else _sections_by_heading(text)
+    missing = [name for name in REQUIRED_FIXED_SECTIONS if name not in sections]
+    return [f"missing '{name}'" for name in missing]
 
 
 def _sections_by_heading(text: str) -> Dict[str, List[str]]:

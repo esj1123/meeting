@@ -6,7 +6,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from import_gpt_minutes import import_gpt_minutes
+from import_gpt_minutes import expected_gpt_output_path, import_gpt_minutes
 from register_source import register_source
 from render_meeting_repo import validate_repo
 
@@ -20,15 +20,30 @@ def copy_template(root: Path) -> None:
 def build_valid_sample(root: Path) -> None:
     copy_template(root)
     register_source(root, "MTG-20260601-001", "Demo", "2026-06-01", apply=True)
-    payload = {
-        "meeting_id": "MTG-20260601-001",
-        "summary": ["Summary"],
-        "decisions": [{"id": "D-001", "title": "Decision", "decider": "A", "owner": "B", "due": "2026-06-10"}],
-        "actions": [{"id": "A-001", "task": "Action", "owner": "B", "due": "2026-06-10"}],
-        "issues": [{"id": "I-001", "issue": "Issue", "owner": "B"}],
-    }
-    gpt_file = root / "gpt.json"
-    gpt_file.write_text(json.dumps(payload), encoding="utf-8")
+    gpt_file = expected_gpt_output_path(root, "MTG-20260601-001")
+    gpt_file.parent.mkdir(parents=True, exist_ok=True)
+    gpt_file.write_text(
+        """### Main Meeting Note
+- Summary
+
+### Decision 후보
+| ID | 제목 | 결정 내용 | 근거 | 확인 필요 |
+|---|---|---|---|---|
+| D-001 | Decision | Decision | source | no |
+
+### Action 후보
+| ID | 할 일 | 담당자 | 기한 | 근거 | 확인 필요 |
+|---|---|---|---|---|---|
+| A-001 | Action | B | 2026-06-10 | source | no |
+
+### Open Issue 후보
+| ID | 이슈 | 확인 주체 | 근거 | 다음 조치 |
+|---|---|---|---|---|
+| I-001 | Issue | B | source | monitor |
+""",
+        encoding="utf-8",
+    )
+    import_gpt_minutes(root, "MTG-20260601-001", gpt_output=gpt_file, apply=False)
     import_gpt_minutes(root, "MTG-20260601-001", gpt_output=gpt_file, apply=True)
 
 

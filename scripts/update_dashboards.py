@@ -11,21 +11,29 @@ from meeting_workflow_state import markdown_table, normalize_minutes, relpath, r
 def update_dashboards(root: Path, apply: bool = False) -> List[str]:
     root = root.resolve()
     minutes = _load_all_minutes(root)
-    dashboard_dir = root / "30_Dashboards"
+    dashboard_dir = root / "00_Dashboard"
     actions: List[str] = []
     actions.append(
         replace_blocks_in_file(
-            dashboard_dir / "meeting_dashboard.md",
-            "# Meeting Dashboard\n\n<!-- AUTO-GENERATED: DASHBOARD START -->\nNo meetings.\n<!-- AUTO-GENERATED: DASHBOARD END -->\n",
-            {"DASHBOARD": _meeting_dashboard(minutes)},
+            dashboard_dir / "Meeting_HOME.md",
+            "# Meeting HOME\n\n<!-- AUTO-GENERATED: DASHBOARD START -->\nNo meetings.\n<!-- AUTO-GENERATED: DASHBOARD END -->\n",
+            {"DASHBOARD": _meeting_home(minutes)},
             apply=apply,
         )
     )
     actions.append(
         replace_blocks_in_file(
-            dashboard_dir / "review_required.md",
-            "# Review Required\n\n<!-- AUTO-GENERATED: DASHBOARD START -->\nNo review items.\n<!-- AUTO-GENERATED: DASHBOARD END -->\n",
-            {"DASHBOARD": _review_dashboard(minutes)},
+            dashboard_dir / "Action_Queue.md",
+            "# Action Queue\n\n<!-- AUTO-GENERATED: DASHBOARD START -->\nNo actions.\n<!-- AUTO-GENERATED: DASHBOARD END -->\n",
+            {"DASHBOARD": _action_queue(minutes)},
+            apply=apply,
+        )
+    )
+    actions.append(
+        replace_blocks_in_file(
+            dashboard_dir / "Decision_Register.md",
+            "# Decision Register\n\n<!-- AUTO-GENERATED: DASHBOARD START -->\nNo decisions.\n<!-- AUTO-GENERATED: DASHBOARD END -->\n",
+            {"DASHBOARD": _decision_register(minutes)},
             apply=apply,
         )
     )
@@ -40,7 +48,7 @@ def _load_all_minutes(root: Path) -> List[Dict[str, Any]]:
     return sorted(result, key=lambda item: str(item.get("meeting_id", "")))
 
 
-def _meeting_dashboard(minutes: List[Dict[str, Any]]) -> str:
+def _meeting_home(minutes: List[Dict[str, Any]]) -> str:
     rows = [
         [
             item["meeting_id"],
@@ -50,25 +58,58 @@ def _meeting_dashboard(minutes: List[Dict[str, Any]]) -> str:
             len(item.get("actions", [])),
             len(item.get("issues", [])),
             "yes" if item.get("review", {}).get("review_required") else "no",
+            _meeting_status(item),
         ]
         for item in minutes
     ]
-    return markdown_table(["Meeting", "Title", "Date", "Decisions", "Actions", "Issues", "Review"], rows)
+    return markdown_table(["Meeting", "Title", "Date", "Decisions", "Actions", "Issues", "Review", "Status"], rows)
 
 
-def _review_dashboard(minutes: List[Dict[str, Any]]) -> str:
+def _action_queue(minutes: List[Dict[str, Any]]) -> str:
     rows: List[List[str]] = []
     for meeting in minutes:
         meeting_id = meeting["meeting_id"]
-        for kind, group, field in (
-            ("decision", "decisions", "title"),
-            ("action", "actions", "task"),
-            ("issue", "issues", "issue"),
-        ):
-            for item in meeting.get(group, []):
-                if item.get("review_required"):
-                    rows.append([meeting_id, kind, item["id"], item.get(field, "")])
-    return markdown_table(["Meeting", "Kind", "ID", "Item"], rows)
+        for item in meeting.get("actions", []):
+            rows.append(
+                [
+                    meeting_id,
+                    item["id"],
+                    item.get("task", ""),
+                    item.get("owner", "Unknown"),
+                    item.get("due", "Unknown"),
+                    "yes" if item.get("review_required") else "no",
+                    _item_status(item),
+                ]
+            )
+    return markdown_table(["Meeting", "Action", "Task", "Owner", "Due", "Review", "Status"], rows)
+
+
+def _decision_register(minutes: List[Dict[str, Any]]) -> str:
+    rows: List[List[str]] = []
+    for meeting in minutes:
+        meeting_id = meeting["meeting_id"]
+        for item in meeting.get("decisions", []):
+            rows.append(
+                [
+                    meeting_id,
+                    item["id"],
+                    item.get("title", ""),
+                    item.get("decider", "Unknown"),
+                    item.get("owner", "Unknown"),
+                    item.get("due", "Unknown"),
+                    "yes" if item.get("review_required") else "no",
+                    _item_status(item),
+                ]
+            )
+    return markdown_table(["Meeting", "Decision", "Title", "Decider", "Owner", "Due", "Review", "Status"], rows)
+
+
+def _meeting_status(item: Dict[str, Any]) -> str:
+    return "review" if item.get("review", {}).get("review_required") else "draft"
+
+
+def _item_status(item: Dict[str, Any]) -> str:
+    return "review" if item.get("review_required") else "draft"
 
 
 def build_parser() -> argparse.ArgumentParser:
