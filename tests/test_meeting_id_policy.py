@@ -8,7 +8,9 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from meeting_workflow_state import (
     derived_item_id,
     next_meeting_id,
+    parse_frontmatter,
     registry_action,
+    source_meeting_date,
     validate_derived_id,
     validate_meeting_id,
 )
@@ -43,6 +45,34 @@ meeting_date: "2026-06-02"
 
     assert next_meeting_id(tmp_path, "2026-06-02") == "MTG-20260602-003"
     assert next_meeting_id(tmp_path, "2026-06-03") == "MTG-20260603-001"
+
+
+def test_source_meeting_date_extracts_source_filename_date() -> None:
+    assert source_meeting_date(Path("recording_260601_150105.txt")) == "2026-06-01"
+    assert source_meeting_date(Path("meeting_2026-06-01.txt")) == "2026-06-01"
+    assert source_meeting_date(Path("audio_150105.txt")) == ""
+
+
+def test_register_source_empty_id_uses_source_filename_date(tmp_path: Path) -> None:
+    copy_template(tmp_path)
+    archive_dir = tmp_path / "20_Sources" / "00_Originals"
+    archive_dir.mkdir(parents=True)
+    source_file = archive_dir / "recording_260601_150105.txt"
+    source_file.write_text("synthetic STT", encoding="utf-8")
+
+    register_source(
+        tmp_path,
+        "",
+        "Source Date Meeting",
+        "2026-06-03",
+        source_file=source_file,
+        apply=True,
+    )
+
+    main_note = tmp_path / "25_Meetings" / "MTG-20260601-001" / "MTG-20260601-001.md"
+    frontmatter = parse_frontmatter(main_note.read_text(encoding="utf-8"))
+    assert frontmatter["meeting_id"] == "MTG-20260601-001"
+    assert frontmatter["meeting_date"] == "2026-06-01"
 
 
 def test_derived_item_ids() -> None:

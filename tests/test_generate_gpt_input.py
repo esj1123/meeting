@@ -140,3 +140,62 @@ def test_generate_gpt_input_rejects_source_path_meeting_id_mismatch(tmp_path: Pa
         assert "different meeting_id" in str(exc)
     else:
         raise AssertionError("Expected mismatched source/STT path to fail")
+
+
+def test_generate_gpt_input_decodes_utf16_stt(tmp_path: Path) -> None:
+    stt_file = tmp_path / "20_Sources" / "00_Originals" / "utf16_stt.txt"
+    stt_file.parent.mkdir(parents=True, exist_ok=True)
+    stt_file.write_text("발화자 1 (00:00)\n로직 검토 일정을 논의했다.\n", encoding="utf-16")
+    register_sample_meeting(tmp_path, stt_file)
+
+    generate_gpt_input(
+        root=tmp_path,
+        meeting_id="MTG-20260601-001",
+        source_file=stt_file,
+        apply=True,
+    )
+
+    input_text = gpt_input_path(tmp_path, "MTG-20260601-001").read_text(encoding="utf-8")
+    assert "발화자 1 (00:00)" in input_text
+    assert "로직 검토 일정을 논의했다." in input_text
+    assert "\ufffd" not in input_text
+
+
+def test_generate_gpt_input_rejects_corrupt_stt_decode(tmp_path: Path) -> None:
+    stt_file = tmp_path / "20_Sources" / "00_Originals" / "corrupt_stt.txt"
+    stt_file.parent.mkdir(parents=True, exist_ok=True)
+    stt_file.write_bytes(b"\xff\xff\xff")
+    register_sample_meeting(tmp_path, stt_file)
+
+    try:
+        generate_gpt_input(
+            root=tmp_path,
+            meeting_id="MTG-20260601-001",
+            source_file=stt_file,
+            apply=False,
+        )
+    except ValueError as exc:
+        assert "could not be decoded cleanly" in str(exc)
+    else:
+        raise AssertionError("Expected corrupt STT decoding to fail")
+
+
+def test_generate_gpt_input_prefers_registered_archive_over_stale_source_file(tmp_path: Path) -> None:
+    archived_stt = tmp_path / "20_Sources" / "00_Originals" / "archived_stt.txt"
+    archived_stt.parent.mkdir(parents=True, exist_ok=True)
+    archived_stt.write_text("ARCHIVE STT TEXT", encoding="utf-8")
+    stale_source = tmp_path / "stale_external_source.txt"
+    stale_source.write_text("STALE SOURCE TEXT", encoding="utf-8")
+    register_sample_meeting(tmp_path, archived_stt)
+
+    generate_gpt_input(
+        root=tmp_path,
+        meeting_id="MTG-20260601-001",
+        source_file=stale_source,
+        apply=True,
+    )
+
+    input_text = gpt_input_path(tmp_path, "MTG-20260601-001").read_text(encoding="utf-8")
+    assert "stt_file: 20_Sources/00_Originals/archived_stt.txt" in input_text
+    assert "ARCHIVE STT TEXT" in input_text
+    assert "STALE SOURCE TEXT" not in input_text

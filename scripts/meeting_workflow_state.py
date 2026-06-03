@@ -26,6 +26,10 @@ UNKNOWN_VALUES = {
 }
 MEETING_ID_RE = re.compile(r"^MTG-(\d{8})-(\d{3})$")
 MEETING_ID_IN_TEXT_RE = re.compile(r"MTG-\d{8}-\d{3}")
+SOURCE_DATE_PATTERNS = (
+    re.compile(r"(?<!\d)(20\d{2})[-_. ]?([01]\d)[-_. ]?([0-3]\d)(?!\d)"),
+    re.compile(r"(?<!\d)([2-6]\d)[-_. ]?([01]\d)[-_. ]?([0-3]\d)(?!\d)"),
+)
 DERIVED_ID_RE = re.compile(r"^(DEC|ACT|ISS|RUN)-(\d{8})-(\d{3})-(\d{3})$")
 DERIVED_PREFIXES = {
     "decision": "DEC",
@@ -110,6 +114,23 @@ def normalize_meeting_date(value: Any) -> str:
 def meeting_date_key(value: Any) -> str:
     normalized = normalize_meeting_date(value)
     return normalized.replace("-", "")
+
+
+def source_meeting_date(source_file: Any) -> str:
+    if not source_file:
+        return ""
+    name = Path(str(source_file)).name
+    for pattern in SOURCE_DATE_PATTERNS:
+        for match in pattern.finditer(name):
+            year_text, month_text, day_text = match.groups()
+            year = int(year_text)
+            if year < 100:
+                year += 2000
+            try:
+                return date(year, int(month_text), int(day_text)).isoformat()
+            except ValueError:
+                continue
+    return ""
 
 
 def validate_meeting_id(value: str) -> bool:

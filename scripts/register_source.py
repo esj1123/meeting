@@ -14,6 +14,7 @@ from meeting_workflow_state import (
     registry_has_meeting_id,
     relpath,
     repo_root_from,
+    source_meeting_date,
     split_meeting_id,
     validate_meeting_id_in_path,
     write_text,
@@ -31,6 +32,9 @@ def register_source(
     apply: bool = False,
 ) -> List[str]:
     root = root.resolve()
+    source_date = source_meeting_date(source_file)
+    if source_date and (not str(meeting_id or "").strip() or not str(meeting_date or "").strip()):
+        meeting_date = source_date
     meeting_date = normalize_meeting_date(meeting_date)
     meeting_id = ensure_meeting_id(root, meeting_id, meeting_date)
     source_id = f"{meeting_id}_source"

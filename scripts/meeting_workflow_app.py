@@ -18,6 +18,7 @@ from meeting_workflow_state import (
     next_meeting_id,
     parse_frontmatter,
     repo_root_from,
+    source_meeting_date,
     validate_meeting_id,
 )
 from register_source import register_source
@@ -293,10 +294,11 @@ class MeetingWorkflowApp(tk.Tk):
 
     def _load_state_to_form(self) -> None:
         self.meeting_title.set(self.state_model.title)
-        self.meeting_date.set(self.state_model.meeting_date or date.today().isoformat())
+        self.source_file.set(self.state_model.source_file)
+        source_date = source_meeting_date(self.state_model.source_file)
+        self.meeting_date.set(self.state_model.meeting_date or source_date or date.today().isoformat())
         initial_id = choose_initial_meeting_id(self.state_model.meeting_id, self.meeting_options)
         self.meeting_id.set(initial_id or next_meeting_id(self.root_path, self.meeting_date.get()))
-        self.source_file.set(self.state_model.source_file)
         self.gpt_input_file.set(self.state_model.gpt_input_file)
         self.gpt_output_file.set(self.state_model.gpt_output_file)
         self.copy_raw.set(self.state_model.copy_raw)
@@ -316,6 +318,7 @@ class MeetingWorkflowApp(tk.Tk):
         value = filedialog.askopenfilename(title=TXT["select_source"])
         if value:
             self.source_file.set(value)
+            self._apply_source_date_to_new_meeting()
 
     def _browse_gpt(self) -> None:
         value = filedialog.askopenfilename(title=TXT["select_gpt"])
@@ -337,10 +340,26 @@ class MeetingWorkflowApp(tk.Tk):
 
     def _generate_new_meeting_id(self) -> None:
         try:
-            self.meeting_id.set(next_meeting_id(self.root_path, self.meeting_date.get().strip()))
+            source_date = source_meeting_date(self.source_file.get())
+            meeting_date = source_date or self.meeting_date.get().strip()
+            if source_date:
+                self.meeting_date.set(source_date)
+            self.meeting_id.set(next_meeting_id(self.root_path, meeting_date))
             self._write_log(TXT["proposed_id"] + self.meeting_id.get())
         except Exception as exc:
             messagebox.showerror(TXT["id_failed"], str(exc))
+
+    def _apply_source_date_to_new_meeting(self, log: bool = True) -> None:
+        source_date = source_meeting_date(self.source_file.get())
+        if not source_date:
+            return
+        current_id = self.meeting_id.get().strip()
+        if any(item["meeting_id"] == current_id for item in canonical_meeting_options(self.meeting_options)):
+            return
+        self.meeting_date.set(source_date)
+        self.meeting_id.set(next_meeting_id(self.root_path, source_date))
+        if log:
+            self._write_log(TXT["proposed_id"] + self.meeting_id.get())
 
     def _autofill_from_meeting_id(self, force: bool = False) -> None:
         meeting_id = self.meeting_id.get().strip()
@@ -353,8 +372,9 @@ class MeetingWorkflowApp(tk.Tk):
             self.meeting_date.set(str(option["meeting_date"]))
 
     def _register_source(self, apply: bool) -> None:
-        self._save_form_state()
         try:
+            self._apply_source_date_to_new_meeting(log=False)
+            self._save_form_state()
             confirmed_copy = False
             if apply:
                 source_hint = meeting_id_in_path(self.source_file.get())

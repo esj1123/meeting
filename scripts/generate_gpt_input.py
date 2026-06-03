@@ -21,6 +21,7 @@ from meeting_workflow_state import (
 GPT_OUTPUT_PLACEHOLDER = "<!-- Paste ChatGPT output below this line. Do not paste raw STT here. -->"
 TEXT_EXTENSIONS = {".csv", ".log", ".markdown", ".md", ".srt", ".tsv", ".txt", ".vtt"}
 AUDIO_EXTENSIONS = {".aac", ".flac", ".m4a", ".mp3", ".mp4", ".wav", ".webm"}
+TEXT_ENCODINGS = ("utf-8-sig", "utf-16", "utf-16le", "utf-16be", "utf-8", "cp949")
 
 
 @dataclass
@@ -114,11 +115,11 @@ def _validated_optional_file(path: Optional[Path], meeting_id: str) -> Optional[
 
 def _find_stt_file(root: Path, raw_ref: str, source_file: Optional[Path]) -> Optional[Path]:
     candidates: List[Path] = []
-    if source_file is not None:
-        candidates.append(source_file)
     raw_path = _resolve_raw_ref(root, raw_ref)
     if raw_path is not None:
         candidates.append(raw_path)
+    if source_file is not None:
+        candidates.append(source_file)
     for candidate in candidates:
         if candidate.exists() and candidate.is_file() and candidate.suffix.lower() in TEXT_EXTENSIONS:
             return candidate
@@ -137,12 +138,30 @@ def _resolve_raw_ref(root: Path, raw_ref: str) -> Optional[Path]:
 
 def _read_text_file(path: Path) -> str:
     data = path.read_bytes()
-    for encoding in ("utf-8-sig", "utf-8", "cp949"):
+    decode_errors: List[str] = []
+    for encoding in TEXT_ENCODINGS:
         try:
-            return data.decode(encoding)
-        except UnicodeDecodeError:
+            text = data.decode(encoding)
+        except UnicodeDecodeError as exc:
+            decode_errors.append(f"{encoding}: {exc}")
             continue
-    return data.decode("utf-8", errors="replace")
+        text = text.lstrip("\ufeff")
+        corruption = _text_corruption_reason(text)
+        if corruption:
+            decode_errors.append(f"{encoding}: {corruption}")
+            continue
+        return text
+    detail = "; ".join(decode_errors)
+    raise ValueError(f"STT file could not be decoded cleanly: {path}. {detail}")
+
+
+def _text_corruption_reason(text: str) -> str:
+    if "\x00" in text:
+        return "decoded text contains NUL characters"
+    replacement_count = text.count("\ufffd")
+    if replacement_count > max(3, len(text) // 1000):
+        return f"decoded text contains too many replacement characters ({replacement_count})"
+    return ""
 
 
 def _clean_stt_text(text: str, suffix: str) -> str:
