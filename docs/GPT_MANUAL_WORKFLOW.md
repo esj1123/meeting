@@ -5,15 +5,32 @@ This repository uses ChatGPT manually. The program does not call the OpenAI API,
 ## Repository Flow
 
 1. Register the meeting source with `scripts/register_source.py` or the GUI launcher.
-2. Copy prompt 01 from `90_Templates/prompts/gpt_prompt_01_main_minutes.md` into ChatGPT with the meeting source text.
-3. Copy prompt 02 into ChatGPT to extract decisions, actions, and issues as JSON.
-4. Copy prompt 03 into ChatGPT for a review check.
-5. Save the pasted GPT result to a local Markdown or JSON file.
-6. Import the pasted output with `scripts/import_gpt_minutes.py`.
+2. Generate `40_Work/<meeting_id>_gpt_input.md` with `scripts/generate_gpt_input.py` or the GUI button `GPT 입력 파일 생성`.
+3. Open the generated GPT input file, copy it into ChatGPT manually, and do not use API automation.
+4. Save the ChatGPT response to `40_Work/<meeting_id>_gpt_output.md` or select another saved GPT output file.
+5. Preview the pasted output import with `scripts/import_gpt_minutes.py`.
+6. Apply the import after reviewing the preview.
 7. Render notes and dashboards with `scripts/render_meeting_repo.py` and `scripts/update_dashboards.py`.
 8. Run validation with `scripts/render_meeting_repo.py --validate`.
 
 All file-changing scripts default to dry run. Add `--apply` only after reviewing the planned changes.
+
+## Generated GPT Input
+
+The generator creates the input file and reserves the expected output file:
+
+```powershell
+py scripts\generate_gpt_input.py --meeting-id MTG-20260601-001
+py scripts\generate_gpt_input.py --meeting-id MTG-20260601-001 --apply
+```
+
+The GPT input includes meeting metadata, source/raw/STT references, `speaker_reliable: false`, `role_reliable: false`, uncertainty rules, the fixed manual output sections, and the STT text. The output placeholder contains only:
+
+```markdown
+<!-- Paste ChatGPT output below this line. Do not paste raw STT here. -->
+```
+
+The generator does not create fake GPT results and does not overwrite an existing GPT output file.
 
 ## Source Policy
 

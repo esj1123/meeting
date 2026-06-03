@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
 import tkinter as tk
+import webbrowser
 from datetime import date
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from typing import Any, Dict, List
 
+from generate_gpt_input import generate_gpt_input, gpt_input_path, gpt_output_path
 from import_gpt_minutes import import_gpt_minutes
 from meeting_workflow_state import (
     WorkflowState,
@@ -28,12 +31,21 @@ TXT = {
     "title_label": "\uc81c\ubaa9",
     "date": "\uc77c\uc790",
     "source_file": "\uc6d0\ubcf8 \ud30c\uc77c",
+    "gpt_input_file": "GPT 입력 파일",
     "gpt_output_file": "GPT \uacb0\uacfc \ud30c\uc77c",
     "copy_raw": "\uba85\uc2dc\uc801\uc73c\ub85c \ud655\uc778\ud55c \ub4a4 \uc6d0\ubcf8 \ud30c\uc77c\uc744 20_Sources/00_Originals\ub85c \ubcf5\uc0ac",
     "preview_register": "\ub4f1\ub85d \ubbf8\ub9ac\ubcf4\uae30",
     "apply_register": "\ub4f1\ub85d \uc801\uc6a9",
+    "new_meeting": "새 회의 만들기",
+    "register_source": "원본/STT 등록",
+    "generate_gpt_input": "GPT 입력 파일 생성",
+    "open_gpt_input": "GPT 입력 파일 열기",
+    "select_gpt_output": "GPT 결과 파일 선택",
     "preview_import": "\uac00\uc838\uc624\uae30 \ubbf8\ub9ac\ubcf4\uae30",
     "apply_import": "\uac00\uc838\uc624\uae30 \uc801\uc6a9",
+    "open_review": "Review 열기",
+    "refresh_dashboard": "Dashboard 갱신",
+    "run_validation": "Validation 실행",
     "validate": "\uac80\uc99d",
     "render_dashboards": "\ub80c\ub354+\ub300\uc2dc\ubcf4\ub4dc \uc801\uc6a9",
     "new_id": "\uc0c8 ID \uc0dd\uc131",
@@ -42,9 +54,11 @@ TXT = {
     "select_source": "\uc6d0\ubcf8 \ud30c\uc77c \uc120\ud0dd",
     "select_gpt": "\ubd99\uc5ec\ub123\uc740 GPT \uacb0\uacfc \uc120\ud0dd",
     "source_required": "\uc6d0\ubcf8/STT \ud30c\uc77c\uc744 \uc120\ud0dd\ud558\uc138\uc694.",
+    "gpt_input_required": "GPT 입력 파일을 먼저 생성하세요.",
     "gpt_required": "GPT \uacb0\uacfc \ud30c\uc77c\uc744 \uc120\ud0dd\ud558\uc138\uc694. STT/\uc6d0\ubcf8 \ud30c\uc77c\uc740 '\ub4f1\ub85d \uc801\uc6a9'\uc5d0\uc11c \uc0ac\uc6a9\ud558\uace0, '\uac00\uc838\uc624\uae30 \uc801\uc6a9'\uc740 ChatGPT \uacb0\uacfc JSON/Markdown \ud30c\uc77c\uc744 \uc0ac\uc6a9\ud569\ub2c8\ub2e4.",
     "file_missing": "\ud30c\uc77c\uc774 \uc5c6\uc2b5\ub2c8\ub2e4: ",
     "file_is_dir": "\ud30c\uc77c\uc774 \uc544\ub2c8\ub77c \ud3f4\ub354\uac00 \uc120\ud0dd\ub418\uc5c8\uc2b5\ub2c8\ub2e4: ",
+    "open_failed": "파일 열기 실패",
     "refresh_done": "\uae30\uc874 \ud68c\uc758 ID \ubaa9\ub85d\uc744 \uc0c8\ub85c\uace0\uce68\ud588\uc2b5\ub2c8\ub2e4.",
     "proposed_id": "\uc0c8 \ud68c\uc758 ID\ub97c \uc81c\uc548\ud588\uc2b5\ub2c8\ub2e4: ",
     "id_failed": "\ud68c\uc758 ID \uc0dd\uc131 \uc2e4\ud328",
@@ -159,6 +173,7 @@ def korean_action_text(action: Any) -> str:
         ("would create ", "\uc0dd\uc131 \uc608\uc815: "),
         ("would update ", "\uc5c5\ub370\uc774\ud2b8 \uc608\uc815: "),
         ("wrote ", "\uc791\uc131 \uc644\ub8cc: "),
+        ("unchanged existing GPT output file ", "기존 GPT 결과 파일 유지: "),
         ("unchanged existing source note ", "\uae30\uc874 \uc18c\uc2a4 \ub178\ud2b8 \uc720\uc9c0: "),
         ("unchanged existing main note ", "\uae30\uc874 \uba54\uc778 \ud68c\uc758 \ub178\ud2b8 \uc720\uc9c0: "),
         ("unchanged ", "\ubcc0\uacbd \uc5c6\uc74c: "),
@@ -208,7 +223,9 @@ class MeetingWorkflowApp(tk.Tk):
         row += 1
         self.source_file = self._file_entry(row, TXT["source_file"], self._browse_source)
         row += 1
-        self.gpt_output_file = self._file_entry(row, TXT["gpt_output_file"], self._browse_gpt)
+        self.gpt_input_file = self._file_entry(row, TXT["gpt_input_file"], None)
+        row += 1
+        self.gpt_output_file = self._file_entry(row, TXT["gpt_output_file"], None)
         row += 1
         self.copy_raw = tk.BooleanVar(value=False)
         ttk.Checkbutton(self, text=TXT["copy_raw"], variable=self.copy_raw).grid(
@@ -218,14 +235,24 @@ class MeetingWorkflowApp(tk.Tk):
 
         buttons = ttk.Frame(self)
         buttons.grid(row=row, column=0, columnspan=3, sticky="ew", padx=12, pady=8)
-        for index in range(6):
+        for index in range(5):
             buttons.columnconfigure(index, weight=1)
-        ttk.Button(buttons, text=TXT["preview_register"], command=lambda: self._register_source(False)).grid(row=0, column=0, padx=4, sticky="ew")
-        ttk.Button(buttons, text=TXT["apply_register"], command=lambda: self._register_source(True)).grid(row=0, column=1, padx=4, sticky="ew")
-        ttk.Button(buttons, text=TXT["preview_import"], command=lambda: self._import(False)).grid(row=0, column=2, padx=4, sticky="ew")
-        ttk.Button(buttons, text=TXT["apply_import"], command=lambda: self._import(True)).grid(row=0, column=3, padx=4, sticky="ew")
-        ttk.Button(buttons, text=TXT["validate"], command=self._validate).grid(row=0, column=4, padx=4, sticky="ew")
-        ttk.Button(buttons, text=TXT["render_dashboards"], command=self._render_apply).grid(row=0, column=5, padx=4, sticky="ew")
+        flow_buttons = [
+            (TXT["new_meeting"], self._generate_new_meeting_id),
+            (TXT["register_source"], lambda: self._register_source(True)),
+            (TXT["generate_gpt_input"], self._generate_gpt_input),
+            (TXT["open_gpt_input"], self._open_gpt_input),
+            (TXT["select_gpt_output"], self._browse_gpt),
+            (TXT["preview_import"], lambda: self._import(False)),
+            (TXT["apply_import"], lambda: self._import(True)),
+            (TXT["open_review"], self._open_review),
+            (TXT["refresh_dashboard"], self._render_apply),
+            (TXT["run_validation"], self._validate),
+        ]
+        for index, (label, command) in enumerate(flow_buttons):
+            ttk.Button(buttons, text=label, command=command).grid(
+                row=index // 5, column=index % 5, padx=4, pady=3, sticky="ew"
+            )
         row += 1
 
         self.log = tk.Text(self, height=24, wrap="word")
@@ -252,16 +279,16 @@ class MeetingWorkflowApp(tk.Tk):
         id_buttons = ttk.Frame(self)
         id_buttons.grid(row=row, column=2, sticky="ew", padx=12, pady=4)
         id_buttons.columnconfigure(0, weight=1)
-        id_buttons.columnconfigure(1, weight=1)
-        ttk.Button(id_buttons, text=TXT["new_id"], command=self._generate_new_meeting_id).grid(row=0, column=0, padx=(0, 3), sticky="ew")
-        ttk.Button(id_buttons, text=TXT["refresh"], command=self._refresh_meeting_options).grid(row=0, column=1, padx=(3, 0), sticky="ew")
+        ttk.Button(id_buttons, text=TXT["refresh"], command=self._refresh_meeting_options).grid(row=0, column=0, sticky="ew")
         return var
 
     def _file_entry(self, row: int, label: str, browse_command) -> tk.StringVar:
         var = tk.StringVar()
         ttk.Label(self, text=label).grid(row=row, column=0, sticky="w", padx=12, pady=4)
-        ttk.Entry(self, textvariable=var).grid(row=row, column=1, sticky="ew", padx=12, pady=4)
-        ttk.Button(self, text=TXT["browse"], command=browse_command).grid(row=row, column=2, sticky="ew", padx=12, pady=4)
+        columnspan = 1 if browse_command else 2
+        ttk.Entry(self, textvariable=var).grid(row=row, column=1, columnspan=columnspan, sticky="ew", padx=12, pady=4)
+        if browse_command:
+            ttk.Button(self, text=TXT["browse"], command=browse_command).grid(row=row, column=2, sticky="ew", padx=12, pady=4)
         return var
 
     def _load_state_to_form(self) -> None:
@@ -270,6 +297,7 @@ class MeetingWorkflowApp(tk.Tk):
         initial_id = choose_initial_meeting_id(self.state_model.meeting_id, self.meeting_options)
         self.meeting_id.set(initial_id or next_meeting_id(self.root_path, self.meeting_date.get()))
         self.source_file.set(self.state_model.source_file)
+        self.gpt_input_file.set(self.state_model.gpt_input_file)
         self.gpt_output_file.set(self.state_model.gpt_output_file)
         self.copy_raw.set(self.state_model.copy_raw)
         self._autofill_from_meeting_id(force=False)
@@ -279,6 +307,7 @@ class MeetingWorkflowApp(tk.Tk):
         self.state_model.title = self.meeting_title.get().strip()
         self.state_model.meeting_date = self.meeting_date.get().strip()
         self.state_model.source_file = self.source_file.get().strip()
+        self.state_model.gpt_input_file = self.gpt_input_file.get().strip()
         self.state_model.gpt_output_file = self.gpt_output_file.get().strip()
         self.state_model.copy_raw = self.copy_raw.get()
         self.state_model.save(self.root_path)
@@ -292,6 +321,11 @@ class MeetingWorkflowApp(tk.Tk):
         value = filedialog.askopenfilename(title=TXT["select_gpt"])
         if value:
             self.gpt_output_file.set(value)
+
+    def _optional_source_file(self) -> Path | None:
+        if not self.source_file.get().strip():
+            return None
+        return selected_existing_file(self.source_file.get(), TXT["source_required"])
 
     def _refresh_meeting_options(self) -> None:
         self.meeting_options = discover_meetings(self.root_path)
@@ -365,6 +399,51 @@ class MeetingWorkflowApp(tk.Tk):
             self._write_actions(TXT["apply"] if apply else TXT["preview"], actions)
         except Exception as exc:
             messagebox.showerror(TXT["import_failed"], str(exc))
+
+    def _generate_gpt_input(self) -> None:
+        self._save_form_state()
+        try:
+            actions = generate_gpt_input(
+                root=self.root_path,
+                meeting_id=self.meeting_id.get().strip(),
+                title=self.meeting_title.get().strip(),
+                meeting_date=self.meeting_date.get().strip(),
+                source_file=self._optional_source_file(),
+                apply=True,
+            )
+            input_path = gpt_input_path(self.root_path, self.meeting_id.get().strip())
+            output_path = gpt_output_path(self.root_path, self.meeting_id.get().strip())
+            self.gpt_input_file.set(str(input_path))
+            self.gpt_output_file.set(str(output_path))
+            self._save_form_state()
+            self._write_actions(TXT["apply"], actions)
+        except Exception as exc:
+            messagebox.showerror(TXT["import_failed"], str(exc))
+
+    def _open_gpt_input(self) -> None:
+        path_text = self.gpt_input_file.get().strip()
+        if not path_text and self.meeting_id.get().strip():
+            path_text = str(gpt_input_path(self.root_path, self.meeting_id.get().strip()))
+        try:
+            self._open_existing_file(selected_existing_file(path_text, TXT["gpt_input_required"]))
+        except Exception as exc:
+            messagebox.showerror(TXT["open_failed"], str(exc))
+
+    def _open_review(self) -> None:
+        review_path = self.root_path / "30_Dashboards" / "review_required.md"
+        if not review_path.exists() and self.meeting_id.get().strip():
+            meeting_id = self.meeting_id.get().strip()
+            review_path = self.root_path / "25_Meetings" / meeting_id / f"{meeting_id}.md"
+        try:
+            self._open_existing_file(selected_existing_file(str(review_path), TXT["file_missing"] + str(review_path)))
+        except Exception as exc:
+            messagebox.showerror(TXT["open_failed"], str(exc))
+
+    def _open_existing_file(self, path: Path) -> None:
+        if hasattr(os, "startfile"):
+            os.startfile(str(path))
+        else:
+            webbrowser.open(path.resolve().as_uri())
 
     def _validate(self) -> None:
         errors = validate_repo(self.root_path)

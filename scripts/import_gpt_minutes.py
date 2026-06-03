@@ -49,6 +49,7 @@ def import_gpt_minutes(
             raise ValueError(f"GPT output path must be a file, not a directory: {gpt_output}")
         gpt_text = gpt_output.read_text(encoding="utf-8")
     minutes = parse_gpt_output(gpt_text, meeting_id)
+    minutes = _apply_main_note_metadata(root, meeting_id, minutes)
     return render_minutes_artifacts(root=root, meeting_id=meeting_id, minutes=minutes, apply=apply)
 
 
@@ -103,6 +104,9 @@ def _extract_json(text: str) -> Optional[str]:
 
 
 def _parse_markdown_sections(text: str, meeting_id: str) -> Dict[str, Any]:
+    fixed = _parse_fixed_manual_output(text, meeting_id)
+    if fixed is not None:
+        return fixed
     sections: Dict[str, List[str]] = {}
     current: Optional[str] = None
     for line in text.splitlines():
@@ -119,6 +123,11 @@ def _parse_markdown_sections(text: str, meeting_id: str) -> Dict[str, Any]:
             value = re.sub(r"^\s*[-*]\s+", "", line).strip()
             if value:
                 sections[current].append(value)
+    if not sections:
+        raise ValueError(
+            "GPT output does not contain recognized sections or JSON. "
+            "Select the saved ChatGPT output file, not the raw/STT source file."
+        )
     return {
         "meeting_id": meeting_id,
         "summary": sections.get("summary", []),
@@ -126,6 +135,182 @@ def _parse_markdown_sections(text: str, meeting_id: str) -> Dict[str, Any]:
         "actions": [{"task": item} for item in sections.get("actions", [])],
         "issues": [{"issue": item} for item in sections.get("issues", [])],
     }
+
+
+def _parse_fixed_manual_output(text: str, meeting_id: str) -> Optional[Dict[str, Any]]:
+    sections = _sections_by_heading(text)
+    main_lines = _section_by_name(sections, "main meeting note")
+    decision_lines = _section_by_name(sections, "decision 후보")
+    action_lines = _section_by_name(sections, "action 후보")
+    issue_lines = _section_by_name(sections, "open issue 후보")
+    review_lines = _section_by_name(sections, "검토 필요 항목")
+    if all(value is None for value in (main_lines, decision_lines, action_lines, issue_lines, review_lines)):
+        return None
+    review_reasons = [
+        _review_reason_from_row(row)
+        for row in _parse_markdown_table(review_lines or [])
+        if _review_reason_from_row(row)
+    ]
+    return {
+        "meeting_id": meeting_id,
+        "summary": _summary_lines(main_lines or []),
+        "decisions": [_decision_from_row(row) for row in _parse_markdown_table(decision_lines or [])],
+        "actions": [_action_from_row(row) for row in _parse_markdown_table(action_lines or [])],
+        "issues": [_issue_from_row(row) for row in _parse_markdown_table(issue_lines or [])],
+        "review": {
+            "review_required": bool(review_reasons),
+            "reasons": review_reasons,
+        },
+    }
+
+
+def _sections_by_heading(text: str) -> Dict[str, List[str]]:
+    sections: Dict[str, List[str]] = {}
+    current: Optional[str] = None
+    for line in text.splitlines():
+        heading = re.match(r"^#{1,4}\s+(.+?)\s*$", line)
+        if heading:
+            current = heading.group(1).strip().lower()
+            sections.setdefault(current, [])
+            continue
+        if current is not None:
+            sections[current].append(line)
+    return sections
+
+
+def _section_by_name(sections: Dict[str, List[str]], name: str) -> Optional[List[str]]:
+    return sections.get(name.lower())
+
+
+def _summary_lines(lines: List[str]) -> List[str]:
+    result: List[str] = []
+    for line in lines:
+        value = re.sub(r"^\s*[-*]\s+", "", line).strip()
+        if not value or value.startswith("<!--") or value.startswith("|"):
+            continue
+        result.append(value)
+    return result
+
+
+def _parse_markdown_table(lines: List[str]) -> List[Dict[str, str]]:
+    table_lines: List[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("|") and stripped.endswith("|"):
+            table_lines.append(stripped)
+        elif table_lines:
+            break
+    if len(table_lines) < 2:
+        return []
+    headers = _split_table_row(table_lines[0])
+    rows: List[Dict[str, str]] = []
+    for line in table_lines[2:]:
+        cells = _split_table_row(line)
+        if not any(cells):
+            continue
+        rows.append({header: cells[index] if index < len(cells) else "" for index, header in enumerate(headers)})
+    return rows
+
+
+def _split_table_row(line: str) -> List[str]:
+    body = line.strip().strip("|")
+    return [cell.replace("\\|", "|").strip() for cell in re.split(r"(?<!\\)\|", body)]
+
+
+def _decision_from_row(row: Dict[str, str]) -> Dict[str, Any]:
+    title = _row_value(row, "제목", "title") or _row_value(row, "결정 내용", "decision")
+    content = _row_value(row, "결정 내용", "decision")
+    evidence = _row_value(row, "근거", "evidence", "source_refs")
+    return {
+        "id": _row_value(row, "ID", "id"),
+        "title": title,
+        "decision": content,
+        "source_refs": [evidence] if evidence else [],
+        "review_required": _review_required(_row_value(row, "확인 필요", "review_required"), title, content),
+    }
+
+
+def _action_from_row(row: Dict[str, str]) -> Dict[str, Any]:
+    owner = _row_value(row, "담당자", "owner")
+    due = _row_value(row, "기한", "due")
+    evidence = _row_value(row, "근거", "evidence", "source_refs")
+    task = _row_value(row, "할 일", "action", "task")
+    return {
+        "id": _row_value(row, "ID", "id"),
+        "task": task,
+        "owner": _unknown_if_uncertain(owner),
+        "due": _unknown_if_uncertain(due),
+        "source_refs": [evidence] if evidence else [],
+        "review_required": _review_required(_row_value(row, "확인 필요", "review_required"), owner, due, task),
+    }
+
+
+def _issue_from_row(row: Dict[str, str]) -> Dict[str, Any]:
+    owner = _row_value(row, "확인 주체", "owner")
+    evidence = _row_value(row, "근거", "evidence", "source_refs")
+    next_action = _row_value(row, "다음 조치", "next_action")
+    issue = _row_value(row, "이슈", "issue")
+    return {
+        "id": _row_value(row, "ID", "id"),
+        "issue": issue,
+        "owner": _unknown_if_uncertain(owner),
+        "next_action": next_action,
+        "source_refs": [evidence] if evidence else [],
+        "review_required": _review_required(owner, next_action),
+    }
+
+
+def _row_value(row: Dict[str, str], *keys: str) -> str:
+    lowered = {key.lower(): value for key, value in row.items()}
+    for key in keys:
+        if key in row:
+            return row[key].strip()
+        value = lowered.get(key.lower())
+        if value is not None:
+            return value.strip()
+    return ""
+
+
+def _review_reason_from_row(row: Dict[str, str]) -> str:
+    location = _row_value(row, "위치", "location")
+    reason = _row_value(row, "검토 사유", "reason")
+    required = _row_value(row, "확인할 내용", "check")
+    parts = [part for part in (location, reason, required) if part]
+    return ": ".join(parts)
+
+
+def _review_required(*values: str) -> bool:
+    return any(_uncertain(value) for value in values)
+
+
+def _unknown_if_uncertain(value: str) -> str:
+    return "Unknown" if _uncertain(value) else value
+
+
+def _uncertain(value: str) -> bool:
+    text = str(value or "").strip()
+    lowered = text.lower()
+    if not text:
+        return True
+    if lowered in {"yes", "true", "review_required", "review required", "tbd", "unknown", "unclear", "not specified"}:
+        return True
+    if lowered in {"no", "false", "none", "n/a"}:
+        return False
+    if "불필요" in text:
+        return False
+    return any(marker in text for marker in ("확인 필요", "불명확", "미정", "추후 확인"))
+
+
+def _apply_main_note_metadata(root: Path, meeting_id: str, minutes: Dict[str, Any]) -> Dict[str, Any]:
+    main_note = root.resolve() / "25_Meetings" / meeting_id / f"{meeting_id}.md"
+    if not main_note.exists():
+        return minutes
+    frontmatter = parse_frontmatter(main_note.read_text(encoding="utf-8"))
+    if frontmatter.get("title") and str(minutes.get("title", "")).strip() in {"", meeting_id}:
+        minutes["title"] = frontmatter["title"]
+    if frontmatter.get("meeting_date") and str(minutes.get("meeting_date", "")).strip() in {"", "Unknown"}:
+        minutes["meeting_date"] = frontmatter["meeting_date"]
+    return minutes
 
 
 def _main_blocks(minutes: Dict[str, Any]) -> Dict[str, str]:

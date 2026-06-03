@@ -34,14 +34,23 @@ py scripts\register_source.py --title "Demo Meeting" --date 2026-06-01 --source-
 
 ## Use ChatGPT Manually
 
-Use the prompt templates in order:
+After registering the source, generate the single manual GPT input file:
 
-1. `90_Templates/prompts/gpt_prompt_01_main_minutes.md`
-2. `90_Templates/prompts/gpt_prompt_02_extract_decisions_actions_issues.md`
-3. `90_Templates/prompts/gpt_prompt_03_review_check.md`
-4. `90_Templates/prompts/gpt_prompt_04_render_notes.md`
+```powershell
+py scripts\generate_gpt_input.py --meeting-id MTG-20260601-001
+py scripts\generate_gpt_input.py --meeting-id MTG-20260601-001 --apply
+```
 
-Save the pasted GPT output to a local file. Prefer the JSON shape requested in prompt 02.
+This writes:
+
+- `40_Work/MTG-20260601-001_gpt_input.md`
+- `40_Work/MTG-20260601-001_gpt_output.md`
+
+The output file is only a placeholder until the user saves the ChatGPT response there. Do not paste raw STT into the GPT output file.
+
+The generated input file already includes the manual instructions, the uncertainty rules, the required output sections, and the STT text. Copy the input file into ChatGPT manually.
+
+Save the pasted GPT output to the generated output path or another local Markdown/JSON file.
 
 ## Import GPT Output
 

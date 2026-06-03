@@ -125,6 +125,7 @@ def test_state_round_trip(tmp_path: Path) -> None:
         title="Demo Meeting",
         meeting_date="2026-06-01",
         source_file="C:/sample/source.m4a",
+        gpt_input_file="C:/sample/input.md",
         gpt_output_file="C:/sample/output.md",
         copy_raw=True,
     )
@@ -132,7 +133,38 @@ def test_state_round_trip(tmp_path: Path) -> None:
     loaded = WorkflowState.load(tmp_path)
     assert loaded.meeting_id == "MTG-20260601-001"
     assert loaded.copy_raw is True
+    assert loaded.gpt_input_file.endswith("input.md")
     assert loaded.gpt_output_file.endswith("output.md")
+
+
+def test_launcher_manual_gpt_flow_labels_are_ordered() -> None:
+    import meeting_workflow_app
+
+    labels = [
+        meeting_workflow_app.TXT["new_meeting"],
+        meeting_workflow_app.TXT["register_source"],
+        meeting_workflow_app.TXT["generate_gpt_input"],
+        meeting_workflow_app.TXT["open_gpt_input"],
+        meeting_workflow_app.TXT["select_gpt_output"],
+        meeting_workflow_app.TXT["preview_import"],
+        meeting_workflow_app.TXT["apply_import"],
+        meeting_workflow_app.TXT["open_review"],
+        meeting_workflow_app.TXT["refresh_dashboard"],
+        meeting_workflow_app.TXT["run_validation"],
+    ]
+
+    assert labels == [
+        "새 회의 만들기",
+        "원본/STT 등록",
+        "GPT 입력 파일 생성",
+        "GPT 입력 파일 열기",
+        "GPT 결과 파일 선택",
+        "가져오기 미리보기",
+        "가져오기 적용",
+        "Review 열기",
+        "Dashboard 갱신",
+        "Validation 실행",
+    ]
 
 
 def test_replace_generated_block_preserves_manual_content() -> None:

@@ -9,7 +9,21 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 
 GENERATED_RE = re.compile(r"<!-- AUTO-GENERATED: ([A-Z0-9_-]+) (START|END) -->")
-UNKNOWN_VALUES = {"", "unknown", "tbd", "n/a", "na", "none", "null", "unclear", "not specified"}
+UNKNOWN_VALUES = {
+    "",
+    "unknown",
+    "tbd",
+    "n/a",
+    "na",
+    "none",
+    "null",
+    "unclear",
+    "not specified",
+    "확인 필요",
+    "불명확",
+    "미정",
+    "없음",
+}
 MEETING_ID_RE = re.compile(r"^MTG-(\d{8})-(\d{3})$")
 DERIVED_ID_RE = re.compile(r"^(DEC|ACT|ISS|RUN)-(\d{8})-(\d{3})-(\d{3})$")
 DERIVED_PREFIXES = {
@@ -27,6 +41,7 @@ class WorkflowState:
     title: str = ""
     meeting_date: str = ""
     source_file: str = ""
+    gpt_input_file: str = ""
     gpt_output_file: str = ""
     copy_raw: bool = False
 
